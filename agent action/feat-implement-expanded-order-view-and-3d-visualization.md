@@ -1,6 +1,4 @@
-# Agent Action Log
-
-## Expanded Order View Implementation
+# feat: implement expanded order view and 3D visualization
 
 This document outlines the changes made to implement the detailed order view with 3D visualization and slicer data integration.
 
