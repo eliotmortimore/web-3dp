@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import router as api_router
 from app.core.config import settings
@@ -22,6 +23,9 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+# Mount uploads directory for static file serving
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 def root():

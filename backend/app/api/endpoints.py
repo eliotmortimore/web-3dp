@@ -1,16 +1,110 @@
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends
-from sqlalchemy.orm import Session
-from app.db.database import get_db
-from app.db.models import Job, Material, JobStatus
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, BackgroundTasks
 import shutil
 import os
 from tempfile import NamedTemporaryFile
 from stl import mesh
 
+from sqlalchemy.orm import Session
+from app.db.database import get_db
+from app.db.models import Job, Material, JobStatus
+from app.services.slicer import BambuSlicer
+from app.services.bambu_client import BambuPrinter
+from app.services.metadata import parse_3mf_metadata
+import trimesh
+
 router = APIRouter()
+slicer = BambuSlicer()
+printer = BambuPrinter()
+
+# --- Background Task ---
+def analyze_and_slice_job(job_id: int, db: Session):
+    """
+    1. Analyze Mesh (Volume)
+    2. Run Slicer (Weight, Time, Gcode)
+    3. Update Job in DB
+    """
+    # Need a new session for background thread usually, but here we can rely on passed logic if careful.
+    # Actually, BackgroundTasks runs after response, so standard Dependency injection might close session.
+    # Better to create a new session here.
+    from app.db.database import SessionLocal
+    bg_db = SessionLocal()
+    
+    try:
+        job = bg_db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            return
+
+        print(f"[Task] Starting analysis for Job {job_id}...")
+        job.slice_status = "ANALYZING"
+        bg_db.commit()
+
+        # Step 1: Geometry Analysis
+        input_path = os.path.join(UPLOAD_DIR, job.filename)
+        if not os.path.exists(input_path):
+            job.slice_status = "FAILED"
+            bg_db.commit()
+            return
+
+        # (Existing robust analysis logic here)
+        try:
+            # Try numpy-stl first
+            try:
+                your_mesh = mesh.Mesh.from_file(input_path)
+                raw_vol, _, _ = your_mesh.get_mass_properties()
+                job.volume_cm3 = raw_vol / 1000.0
+            except:
+                # Fallback to trimesh
+                mesh_obj = trimesh.load(input_path)
+                if hasattr(mesh_obj, 'volume'):
+                    job.volume_cm3 = mesh_obj.volume / 1000.0
+                elif hasattr(mesh_obj, 'convex_hull'):
+                    job.volume_cm3 = mesh_obj.convex_hull.volume / 1000.0
+        except Exception as e:
+            print(f"[Task] Vol calc error: {e}")
+            job.volume_cm3 = 50.0 # Fallback
+
+        # Step 2: Slicing
+        output_filename = f"job_{job.id}.gcode.3mf"
+        output_path = os.path.join(UPLOAD_DIR, output_filename)
+        
+        # Call Slicer Service
+        result = slicer.slice_and_parse(input_path, output_path)
+        
+        if result["success"]:
+            job.filament_weight_g = result["weight_g"]
+            job.print_time_seconds = result["print_time_s"]
+            job.sliced_file_path = output_filename
+            job.slice_status = "COMPLETED"
+            
+            # Calculate Price based on REAL weight
+            # Density lookup could be improved, but weight from slicer is most accurate
+            cost_per_g = 0.05 # Default
+            markup = 5.0
+            
+            # Price = (Weight * Cost) + (Time * Rate) + Markup
+            # Rate: $3/hr => $3/3600 per sec
+            machine_rate_per_sec = 3.0 / 3600.0
+            
+            material_cost = job.filament_weight_g * cost_per_g
+            machine_cost = job.print_time_seconds * machine_rate_per_sec
+            
+            total_price = material_cost + machine_cost + markup
+            job.price = round(total_price * job.quantity, 2)
+            
+        else:
+            job.slice_status = "FAILED"
+            print(f"[Task] Slicing failed.")
+
+        bg_db.commit()
+        print(f"[Task] Job {job_id} analysis complete. Price: ${job.price}")
+
+    except Exception as e:
+        print(f"[Task] Critical Error: {e}")
+    finally:
+        bg_db.close()
 
 # --- Pydantic Schemas (DTOs) ---
 class QuoteRequest(BaseModel):
@@ -19,85 +113,125 @@ class QuoteRequest(BaseModel):
     quantity: int
 
 class QuoteResponse(BaseModel):
-    volume_cm3: float
-    weight_g: float
-    total_cost: float
-    currency: str
+    job_id: int
+    status: str
+    volume_cm3: Optional[float] = None
+    weight_g: Optional[float] = None
+    print_time: Optional[str] = None
+    price: Optional[float] = None
+    currency: str = "USD"
 
 class JobRead(BaseModel):
     id: int
     filename: str
     status: str
+    slice_status: Optional[str] = "PENDING"
     price: float
+    quantity: int
     material: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
+class JobDetailResponse(JobRead):
+    volume_cm3: Optional[float] = None
+    weight_g: Optional[float] = None
+    print_time_seconds: Optional[int] = None
+    sliced_file_path: Optional[str] = None
+    metadata: Optional[dict] = None
+
 # --- Endpoints ---
 
-@router.post("/upload")
-async def upload_stl(file: UploadFile = File(...)):
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@router.post("/upload", response_model=QuoteResponse)
+async def upload_stl(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    material: str = "PLA",
+    quantity: int = 1,
+    db: Session = Depends(get_db)
+):
     if not file.filename.lower().endswith(".stl"):
         raise HTTPException(status_code=400, detail="Only .stl files are allowed")
     
-    with NamedTemporaryFile(delete=False, suffix=".stl") as tmp:
-        shutil.copyfileobj(file.file, tmp)
-        tmp_path = tmp.name
+    # 1. Save File
+    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-    try:
-        your_mesh = mesh.Mesh.from_file(tmp_path)
-        volume, _, _ = your_mesh.get_mass_properties()
-        os.remove(tmp_path)
-        volume_cm3 = volume / 1000.0
-        
-        return {
-            "filename": file.filename, 
-            "status": "Uploaded", 
-            "volume_cm3": round(volume_cm3, 2),
-            "message": "File analyzed successfully"
-        }
-    except Exception as e:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        raise HTTPException(status_code=500, detail=f"Failed to process STL: {str(e)}")
-
-@router.post("/quote", response_model=QuoteResponse)
-async def get_quote(request: QuoteRequest, db: Session = Depends(get_db)):
-    # 1. Logic: Volume * Density * Cost + Markup
-    # TODO: In production, fetch volume from DB/Session instead of hardcoding/trusting client
-    volume = 50.0 
-    
-    density = 1.24
-    if "PETG" in request.material.upper():
-        density = 1.27
-    
-    cost_per_g = 0.05
-    markup = 5.0
-    
-    weight = volume * density
-    price = (weight * cost_per_g * request.quantity) + markup
-    
-    # 2. Save Job to DB
+    # 2. Create Job Immediately (PENDING)
     new_job = Job(
-        filename=request.filename,
-        material=request.material,
-        volume_cm3=volume,
-        quantity=request.quantity,
-        price=round(price, 2),
-        status=JobStatus.PENDING
+        filename=file.filename,
+        material=material,
+        quantity=quantity,
+        status=JobStatus.PENDING,
+        slice_status="PENDING",
+        volume_cm3=0.0,
+        price=0.0 # Will be updated by task
     )
     db.add(new_job)
     db.commit()
     db.refresh(new_job)
     
+    # 3. Trigger Background Analysis
+    background_tasks.add_task(analyze_and_slice_job, new_job.id, db)
+    
     return QuoteResponse(
-        volume_cm3=volume,
-        weight_g=weight,
-        total_cost=round(price, 2),
+        job_id=new_job.id,
+        status="ANALYZING"
+    )
+
+@router.get("/jobs/{job_id}/status", response_model=QuoteResponse)
+async def check_job_status(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    return QuoteResponse(
+        job_id=job.id,
+        status=job.slice_status,
+        volume_cm3=job.volume_cm3,
+        weight_g=job.filament_weight_g,
+        price=job.price,
+        print_time=f"{job.print_time_seconds // 60}m" if job.print_time_seconds else None,
         currency="USD"
     )
+
+@router.get("/jobs/{job_id}/details", response_model=JobDetailResponse)
+async def get_job_details(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Parse metadata from the sliced 3MF file if it exists
+    metadata = {}
+    if job.sliced_file_path:
+        sliced_path = os.path.join(UPLOAD_DIR, job.sliced_file_path)
+        metadata = parse_3mf_metadata(sliced_path)
+        
+    return JobDetailResponse(
+        id=job.id,
+        filename=job.filename,
+        status=job.status,
+        slice_status=job.slice_status,
+        price=job.price,
+        quantity=job.quantity,
+        material=job.material,
+        created_at=job.created_at,
+        volume_cm3=job.volume_cm3,
+        weight_g=job.filament_weight_g,
+        print_time_seconds=job.print_time_seconds,
+        sliced_file_path=job.sliced_file_path,
+        metadata=metadata
+    )
+
+# Keeping old endpoints compatible for now...
+@router.post("/quote")
+async def legacy_quote():
+    return {"message": "Deprecated. Use /upload directly."}
 
 @router.get("/jobs", response_model=List[JobRead])
 async def list_jobs(db: Session = Depends(get_db)):
@@ -109,17 +243,36 @@ async def approve_job(job_id: int, db: Session = Depends(get_db)):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-        
-    job.status = JobStatus.SLICING
+    
+    if job.slice_status != "COMPLETED":
+         raise HTTPException(status_code=400, detail="Job slicing not complete yet.")
+
+    # 1. Check if Sliced File Exists
+    output_filename = job.sliced_file_path
+    if not output_filename:
+         # Fallback logic if for some reason path wasn't saved but status is complete
+         output_filename = f"job_{job.id}.gcode.3mf"
+         
+    output_path = os.path.join(UPLOAD_DIR, output_filename)
+    
+    if not os.path.exists(output_path):
+         raise HTTPException(status_code=500, detail="Sliced file missing on server.")
+
+    # 2. Upload to Printer
+    upload_success = printer.upload_file(output_path, output_filename)
+    if not upload_success:
+        job.status = JobStatus.FAILED
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to upload to printer")
+
+    # 3. Start Print
+    print_success = printer.send_print_command(output_filename)
+    if not print_success:
+         job.status = JobStatus.FAILED
+         db.commit()
+         raise HTTPException(status_code=500, detail="Failed to start print command")
+    
+    job.status = JobStatus.PRINTING
     db.commit()
     
-    # Trigger Async Slicing Task here
-    return {"message": f"Job {job_id} approved. Slicing started..."}
-
-@router.post("/jobs/{job_id}/approve")
-async def approve_job(job_id: int):
-    # Logic: 
-    # 1. Trigger Bambu Slicer CLI
-    # 2. Upload .3mf to Printer (FTPS)
-    # 3. Send Start Print (MQTT)
-    return {"message": f"Job {job_id} approved. Slicing started..."}
+    return {"message": f"Job {job_id} sent to printer successfully."}

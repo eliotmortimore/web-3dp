@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Viewer3D from '../components/Viewer3D';
 import QuotePanel from '../components/QuotePanel';
-import { UploadCloud, CheckCircle, AlertTriangle } from 'lucide-react';
+import { UploadCloud, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 
@@ -14,9 +14,14 @@ function Home() {
   const [quantity, setQuantity] = useState<number>(1);
   const [price, setPrice] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [analyzing, setAnalyzing] = useState<boolean>(false);
   const [volume, setVolume] = useState<number | null>(null);
+  const [jobId, setJobId] = useState<number | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string>("");
 
-  // Handle File Selection (Upload)
+  const pollInterval = useRef<number | null>(null);
+
+  // Handle File Selection (Upload & Start Analysis)
   const handleFileSelect = async (selectedFile: File) => {
     if (selectedFile) {
       setFile(selectedFile);
@@ -25,53 +30,70 @@ function Home() {
       const url = URL.createObjectURL(selectedFile);
       setFileUrl(url);
       
-      // Upload to Backend to calculate Volume
-      setLoading(true);
+      // Upload to Backend to start background slicing
+      setAnalyzing(true);
+      setStatusMessage("Uploading & Starting Analysis...");
+      
       const formData = new FormData();
       formData.append('file', selectedFile);
+      formData.append('material', material);
+      formData.append('quantity', quantity.toString());
 
       try {
         const res = await axios.post('http://localhost:8000/api/v1/upload', formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
-        setVolume(res.data.volume_cm3);
+        
+        setJobId(res.data.job_id);
+        setStatusMessage("Slicing model... (This takes a few seconds)");
+        
+        // Start Polling
+        startPolling(res.data.job_id);
+        
       } catch (err) {
           console.error("Upload failed", err);
-          alert("Failed to analyze file");
-      } finally {
-          setLoading(false);
+          alert("Failed to upload file");
+          setAnalyzing(false);
+          setStatusMessage("");
       }
     }
   };
 
-  // Calculate Price whenever dependencies change
+  const startPolling = (id: number) => {
+      if (pollInterval.current) clearInterval(pollInterval.current);
+      
+      pollInterval.current = window.setInterval(async () => {
+          try {
+              const res = await axios.get(`http://localhost:8000/api/v1/jobs/${id}/status`);
+              const job = res.data;
+              
+              if (job.status === "COMPLETED") {
+                  setVolume(job.volume_cm3);
+                  setPrice(job.price);
+                  setAnalyzing(false);
+                  setStatusMessage("");
+                  stopPolling();
+              } else if (job.status === "FAILED") {
+                  setAnalyzing(false);
+                  setStatusMessage("Analysis Failed. Please try another file.");
+                  stopPolling();
+              }
+          } catch (err) {
+              console.error("Polling error", err);
+          }
+      }, 1000);
+  };
+
+  const stopPolling = () => {
+      if (pollInterval.current) {
+          clearInterval(pollInterval.current);
+          pollInterval.current = null;
+      }
+  };
+
   useEffect(() => {
-    const fetchQuote = async () => {
-        if (volume && material && quantity && file) {
-            setLoading(true);
-            try {
-                // Call Quote Endpoint (which also saves the Job to DB as PENDING)
-                const res = await axios.post('http://localhost:8000/api/v1/quote', {
-                    filename: file.name,
-                    material: material,
-                    quantity: quantity
-                });
-                setPrice(res.data.total_cost);
-            } catch (err) {
-                console.error("Quote failed", err);
-            } finally {
-                setLoading(false);
-            }
-        }
-    };
-
-    // Debounce calls to avoid spamming while typing quantity
-    const timeoutId = setTimeout(() => {
-        fetchQuote();
-    }, 500);
-
-    return () => clearTimeout(timeoutId);
-  }, [volume, material, quantity, file]);
+      return () => stopPolling();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
@@ -102,12 +124,16 @@ function Home() {
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-1 flex-grow flex flex-col min-h-[500px]">
               <div className="flex justify-between items-center px-4 py-3 border-b border-gray-50">
                 <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                  <span className={`w-2 h-2 rounded-full ${analyzing ? 'bg-yellow-400 animate-pulse' : 'bg-green-500'}`}></span>
                   3D Preview
                 </h2>
-                {volume && (
+                {analyzing ? (
+                    <span className="text-xs font-mono text-blue-600 flex items-center gap-2">
+                        <Loader2 className="w-3 h-3 animate-spin" /> {statusMessage}
+                    </span>
+                ) : volume && (
                   <span className="text-xs font-mono text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                    Vol: {volume} cm³
+                    Vol: {volume.toFixed(2)} cm³
                   </span>
                 )}
               </div>
@@ -130,8 +156,8 @@ function Home() {
                   <CheckCircle className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-sm text-gray-900">Instant Quote</h3>
-                  <p className="text-xs text-gray-500 mt-1">Get accurate pricing in seconds based on volume.</p>
+                  <h3 className="font-semibold text-sm text-gray-900">Precise Quote</h3>
+                  <p className="text-xs text-gray-500 mt-1">Pricing based on actual slicer simulation.</p>
                 </div>
               </div>
               
@@ -165,7 +191,7 @@ function Home() {
                 onMaterialChange={(m, c) => { setMaterial(m); setColor(c); }}
                 onQuantityChange={setQuantity}
                 price={price}
-                loading={loading}
+                loading={analyzing}
               />
               
               <div className="mt-6 text-center text-xs text-gray-400">

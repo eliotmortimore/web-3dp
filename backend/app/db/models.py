@@ -25,6 +25,12 @@ class Job(Base):
     quantity = Column(Integer, default=1)
     customer_email = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # New columns for precise slicing data
+    slice_status = Column(String, default="PENDING") # PENDING, SLICING, COMPLETED, FAILED
+    print_time_seconds = Column(Integer, default=0)
+    filament_weight_g = Column(Float, default=0.0)
+    sliced_file_path = Column(String, nullable=True)
 
 class Material(Base):
     __tablename__ = "materials"

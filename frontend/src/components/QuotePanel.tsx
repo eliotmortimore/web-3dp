@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, DollarSign, Box } from 'lucide-react';
+import { Upload, DollarSign, Box, Check } from 'lucide-react';
 
 interface QuotePanelProps {
   onFileSelect: (file: File) => void;
@@ -32,6 +32,7 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
   const [selectedMat, setSelectedMat] = useState(MATERIALS[0]);
   const [selectedColor, setSelectedColor] = useState(MATERIALS[0].colors[0]);
   const [qty, setQty] = useState(1);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const handleMatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const mat = MATERIALS.find(m => m.id === e.target.value) || MATERIALS[0];
@@ -50,6 +51,13 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
     const val = parseInt(e.target.value) || 1;
     setQty(val);
     onQuantityChange(val);
+  };
+
+  const handleAddToOrder = () => {
+    // Add visual feedback
+    setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 2000);
+    // In a real app, this would add to cart or checkout
   };
 
   return (
@@ -136,11 +144,20 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
       </div>
 
       <button 
-        disabled={!price}
-        className={`w-full py-3 px-4 rounded-md text-white font-bold transition duration-200 
-          ${price ? 'bg-blue-600 hover:bg-blue-700 shadow-lg' : 'bg-gray-300 cursor-not-allowed'}`}
+        onClick={handleAddToOrder}
+        disabled={!price || showSuccess}
+        className={`w-full py-3 px-4 rounded-md text-white font-bold transition-all duration-200 flex items-center justify-center gap-2
+          ${price && !showSuccess ? 'bg-blue-600 hover:bg-blue-700 shadow-lg transform hover:-translate-y-0.5' : 'bg-gray-300 cursor-not-allowed'}
+          ${showSuccess ? 'bg-green-500 hover:bg-green-600' : ''}`}
       >
-        Order Now
+        {showSuccess ? (
+          <>
+            <Check className="w-5 h-5" />
+            Added to Order!
+          </>
+        ) : (
+          "Add to Order"
+        )}
       </button>
     </div>
   );

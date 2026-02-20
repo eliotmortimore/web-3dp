@@ -16,9 +16,13 @@ class Settings(BaseSettings):
 
     # Bambu Lab Printer Config
     BAMBU_PRINTER_IP: str = "192.168.1.100"  # Example IP
-    BAMBU_ACCESS_CODE: str = "YOUR_ACCESS_CODE"
-    BAMBU_SERIAL_NUMBER: str = "YOUR_SERIAL"
+    BAMBU_ACCESS_CODE: str = "12345678"
+    BAMBU_SERIAL_NUMBER: str = "01S00A123456789"
     BAMBU_MQTT_USER: str = "bblp"  # Default username
+
+    # Slicer Config (macOS Default)
+    SLICER_PATH: str = "/Applications/BambuStudio.app/Contents/MacOS/BambuStudio"
+    SLICER_CONFIG_DIR: str = "./slicer_profiles" # Directory to store configs
 
     class Config:
         env_file = ".env"
