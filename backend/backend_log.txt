@@ -1,0 +1,13 @@
+INFO:     Will watch for changes in these directories: ['/Users/Eliot/Desktop/Web3dp/backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [57049] using StatReload
+INFO:     Started server process [57051]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:63694 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63698 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63717 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63729 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63761 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63791 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63825 - "GET /api/v1/jobs HTTP/1.1" 200 OK

@@ -11,3 +11,5 @@ python-dotenv
 aiofiles
 trimesh
 scipy
+psycopg2-binary
+supabase

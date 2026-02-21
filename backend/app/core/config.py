@@ -11,8 +11,13 @@ class Settings(BaseSettings):
         "http://localhost:5173",  # Vite default port
     ]
     
-    # Database (SQLite)
-    DATABASE_URL: str = "sqlite:///./web3dp.db"
+    # Database (PostgreSQL)
+    DATABASE_URL: str = "postgresql://postgres:password@localhost/web3dp"
+
+    # Supabase Configuration
+    SUPABASE_URL: str
+    SUPABASE_KEY: str
+    SUPABASE_BUCKET: str = "web3dp-files"
 
     # Bambu Lab Printer Config
     BAMBU_PRINTER_IP: str = "192.168.1.100"  # Example IP

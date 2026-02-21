@@ -24,6 +24,8 @@ class Job(Base):
     price = Column(Float)
     quantity = Column(Integer, default=1)
     customer_email = Column(String, nullable=True)
+    customer_id = Column(String, nullable=True, index=True)
+    order_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # New columns for precise slicing data

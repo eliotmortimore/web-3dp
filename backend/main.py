@@ -24,9 +24,6 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api/v1")
 
-# Mount uploads directory for static file serving
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
 @app.get("/")
 def root():
     return {"message": "Web3DP API is running"}
