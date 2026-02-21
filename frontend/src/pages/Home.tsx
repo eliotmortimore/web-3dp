@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import Viewer3D from '../components/Viewer3D';
 import QuotePanel from '../components/QuotePanel';
 import { UploadCloud, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
 
 // Main Home Component
 function Home() {
+  const { session } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [material, setMaterial] = useState<string>('PLA');
@@ -40,8 +41,16 @@ function Home() {
       formData.append('quantity', quantity.toString());
 
       try {
+        const headers: Record<string, string> = { 
+            'Content-Type': 'multipart/form-data' 
+        };
+        
+        if (session?.access_token) {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
         const res = await axios.post('http://localhost:8000/api/v1/upload', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
+            headers
         });
         
         setJobId(res.data.job_id);

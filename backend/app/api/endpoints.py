@@ -16,6 +16,7 @@ from app.services.metadata import parse_3mf_metadata
 import trimesh
 
 from app.core.config import settings
+from app.api import deps
 from supabase import create_client, Client
 
 router = APIRouter()
@@ -176,7 +177,8 @@ async def upload_stl(
     file: UploadFile = File(...),
     material: str = "PLA",
     quantity: int = 1,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user_id: Optional[str] = Depends(deps.get_current_user_id)
 ):
     if not file.filename.lower().endswith(".stl"):
         raise HTTPException(status_code=400, detail="Only .stl files are allowed")
@@ -189,7 +191,8 @@ async def upload_stl(
         status=JobStatus.PENDING,
         slice_status="PENDING",
         volume_cm3=0.0,
-        price=0.0 
+        price=0.0,
+        customer_id=user_id # Save User ID if logged in
     )
     db.add(new_job)
     db.commit()
@@ -274,12 +277,12 @@ async def legacy_quote():
     return {"message": "Deprecated. Use /upload directly."}
 
 @router.get("/jobs", response_model=List[JobRead])
-async def list_jobs(db: Session = Depends(get_db)):
+async def list_jobs(db: Session = Depends(get_db), current_user = Depends(deps.get_current_admin)):
     jobs = db.query(Job).order_by(Job.created_at.desc()).all()
     return jobs
 
 @router.post("/jobs/{job_id}/approve")
-async def approve_job(job_id: int, db: Session = Depends(get_db)):
+async def approve_job(job_id: int, db: Session = Depends(get_db), current_user = Depends(deps.get_current_admin)):
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

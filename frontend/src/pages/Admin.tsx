@@ -14,19 +14,37 @@ interface Job {
   created_at: string;
 }
 
+import { useAuth } from '../context/AuthContext';
+
 const Admin = () => {
+  const { session, loading: authLoading } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [activeTab, setActiveTab] = useState('jobs');
-  const [processing, setProcessing] = useState<number | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [dropdownOpen, setDropdownOpen] = useState<number | null>(null);
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  // ...
+
+  // If loading auth state, show a loader
+  if (authLoading) {
+      return (
+          <div className="min-h-screen flex items-center justify-center bg-gray-50">
+              <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
+          </div>
+      );
+  }
+
+  // If not authenticated (and not loading), access is denied (redirect handled in App.tsx)
+  if (!session) {
+      return null; 
+  }
+
+  // ... (rest of component)
+
 
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('http://localhost:8000/api/v1/jobs');
+      if (!session?.access_token) return;
+      const res = await axios.get('http://localhost:8000/api/v1/jobs', {
+          headers: { Authorization: `Bearer ${session.access_token}` }
+      });
       setJobs(res.data);
     } catch (err) {
       console.error("Failed to fetch jobs", err);
@@ -36,33 +54,29 @@ const Admin = () => {
   };
 
   useEffect(() => {
-    fetchJobs();
-    const interval = setInterval(fetchJobs, 5000); 
-    return () => clearInterval(interval);
-  }, []);
+    if (session) {
+        fetchJobs();
+        const interval = setInterval(fetchJobs, 5000); 
+        return () => clearInterval(interval);
+    }
+  }, [session]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setDropdownOpen(null);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  // ... (rest of useEffects)
 
   const handleAction = async (id: number, action: 'print' | 'reject' | 'pause') => {
     setProcessing(id);
     setDropdownOpen(null); // Close dropdown
     
     try {
+      if (!session?.access_token) return;
+      const headers = { Authorization: `Bearer ${session.access_token}` };
+      
       if (action === 'print') {
-        await axios.post(`http://localhost:8000/api/v1/jobs/${id}/approve`);
+        await axios.post(`http://localhost:8000/api/v1/jobs/${id}/approve`, {}, { headers });
       } else {
         // Placeholder for other actions
         console.log(`Action ${action} triggered for job ${id}`);
-        // await axios.post(`http://localhost:8000/api/v1/jobs/${id}/${action}`);
+        // await axios.post(`http://localhost:8000/api/v1/jobs/${id}/${action}`, {}, { headers });
       }
       fetchJobs(); 
     } catch (err) {
