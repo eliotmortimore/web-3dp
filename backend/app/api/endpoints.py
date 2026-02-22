@@ -68,7 +68,7 @@ def analyze_and_slice_job(job_id: int, db: Session):
             try:
                 your_mesh = mesh.Mesh.from_file(local_input_path)
                 raw_vol, _, _ = your_mesh.get_mass_properties()
-                job.volume_cm3 = raw_vol / 1000.0
+                job.volume_cm3 = float(raw_vol) / 1000.0
             except:
                 # Fallback to trimesh
                 mesh_obj = trimesh.load(local_input_path)
