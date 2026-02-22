@@ -1,0 +1,62 @@
+INFO:     Will watch for changes in these directories: ['/Users/Eliot/Desktop/Web3dp/backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [57049] using StatReload
+INFO:     Started server process [57051]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:63694 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63698 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63717 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63729 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63761 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63791 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63825 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63858 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63880 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63891 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63915 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63927 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63935 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63953 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63957 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63963 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63973 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63991 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63999 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+WARNING:  StatReload detected changes in 'app/core/config.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [57051]
+WARNING:  StatReload detected changes in 'app/api/endpoints.py'. Reloading...
+INFO:     Started server process [63147]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [63147]
+WARNING:  StatReload detected changes in 'app/api/endpoints.py'. Reloading...
+INFO:     Started server process [63203]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [63203]
+INFO:     Started server process [63271]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:64012 - "GET /api/v1/jobs HTTP/1.1" 200 OK
+WARNING:  StatReload detected changes in 'app/api/endpoints.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [63271]
+INFO:     Started server process [63435]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:64021 - "GET /api/v1/jobs HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:64118 - "GET /api/v1/jobs HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:64192 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64192 - "GET /openapi.json HTTP/1.1" 200 OK

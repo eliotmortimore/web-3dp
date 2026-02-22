@@ -18,25 +18,15 @@ import { useAuth } from '../context/AuthContext';
 
 const Admin = () => {
   const { session, loading: authLoading } = useAuth();
+  console.log("Admin Render - Session:", session, "Loading:", authLoading);
+
   const [jobs, setJobs] = useState<Job[]>([]);
-  // ...
-
-  // If loading auth state, show a loader
-  if (authLoading) {
-      return (
-          <div className="min-h-screen flex items-center justify-center bg-gray-50">
-              <RefreshCw className="w-8 h-8 animate-spin text-blue-600" />
-          </div>
-      );
-  }
-
-  // If not authenticated (and not loading), access is denied (redirect handled in App.tsx)
-  if (!session) {
-      return null; 
-  }
-
-  // ... (rest of component)
-
+  const [activeTab, setActiveTab] = useState('jobs');
+  const [processing, setProcessing] = useState<number | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [dropdownOpen, setDropdownOpen] = useState<number | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchJobs = async () => {
     setLoading(true);
