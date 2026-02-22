@@ -4,6 +4,7 @@ import QuotePanel from '../components/QuotePanel';
 import { UploadCloud, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 
 // Main Home Component
 function Home() {

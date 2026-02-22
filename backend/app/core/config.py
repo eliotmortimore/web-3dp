@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     SUPABASE_BUCKET: str = "web3dp-files"
     
     # Admin
-    ADMIN_EMAIL: str = "admin@web3dp.com"
+    ADMIN_EMAIL: str = "eliotbmortimore@gmail.com"
 
     # Bambu Lab Printer Config
     BAMBU_PRINTER_IP: str = "192.168.1.100"  # Example IP

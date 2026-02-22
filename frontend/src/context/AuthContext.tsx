@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import type { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
@@ -47,7 +47,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const checkAdmin = (user: User | undefined | null) => {
-    if (user && user.email === 'admin@web3dp.com') {
+    // Allow both the new email and the old fallback for now
+    if (user && (user.email === 'eliotbmortimore@gmail.com' || user.email === 'admin@web3dp.com')) {
       setIsAdmin(true);
     } else {
       setIsAdmin(false);

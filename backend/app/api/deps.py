@@ -49,10 +49,9 @@ def get_current_admin(user = Depends(get_current_user)):
     """
     Dependency to check if the current user is an admin.
     """
-    if not user.email or user.email != "admin@web3dp.com": # Using hardcoded email or env var
-         # Better to use env var
-         admin_email = getattr(settings, "ADMIN_EMAIL", "admin@web3dp.com")
-         if user.email != admin_email:
+    admin_email = getattr(settings, "ADMIN_EMAIL", "eliotbmortimore@gmail.com")
+    if not user.email or user.email != admin_email: 
+         if user.email != "admin@web3dp.com": # Keep fallback for now
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not enough permissions"
