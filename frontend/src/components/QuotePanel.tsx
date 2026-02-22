@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, DollarSign, Box, Check } from 'lucide-react';
-import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import api from '../lib/api';
 
 interface QuotePanelProps {
   onFileSelect: (file: File) => void;
   onMaterialChange: (material: string, color: string) => void;
   onQuantityChange: (qty: number) => void;
+  onPriceUpdate?: (price: number) => void;
   price: number | null;
   loading: boolean;
   jobId: number | null;
@@ -25,11 +26,12 @@ const MATERIALS = [
   ]},
 ];
 
-const QuotePanel: React.FC<QuotePanelProps> = ({ 
-  onFileSelect, 
-  onMaterialChange, 
-  onQuantityChange, 
-  price, 
+const QuotePanel: React.FC<QuotePanelProps> = ({
+  onFileSelect,
+  onMaterialChange,
+  onQuantityChange,
+  onPriceUpdate,
+  price,
   loading,
   jobId
 }) => {
@@ -55,12 +57,14 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
       if (!jobId) return;
       try {
           const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
-          // We call PATCH to update job and recalculate price
-          await axios.patch(`http://localhost:8000/api/v1/jobs/${jobId}`, {
+          const res = await api.patch(`/api/v1/jobs/${jobId}`, {
               quantity: qty,
               material: selectedMat.id,
               color: selectedColor.name
           }, { headers });
+          if (res.data.price !== undefined && onPriceUpdate) {
+              onPriceUpdate(res.data.price);
+          }
       } catch (err) {
           console.error("Failed to update job", err);
       }
@@ -91,8 +95,7 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
     setUpdating(true);
     try {
         const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
-        // Finalize the job status
-        await axios.patch(`http://localhost:8000/api/v1/jobs/${jobId}`, {
+        await api.patch(`/api/v1/jobs/${jobId}`, {
             status: "PAID", // Simulating payment for now
             quantity: qty,
             material: selectedMat.id,

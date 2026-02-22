@@ -65,7 +65,6 @@ const Model = ({ url, type }: ModelViewerProps) => {
 };
 
 const ModelViewer = ({ url, type }: ModelViewerProps) => {
-  console.log(`ModelViewer mounting: type=${type}, url=${url}`);
   return (
     <div className="w-full h-full bg-gray-900 rounded-lg overflow-hidden relative">
       <ErrorBoundary fallback={

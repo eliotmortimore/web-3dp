@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Check, AlertCircle, Clock, RefreshCw, LayoutDashboard, List, Package, Truck, Settings, ChevronDown, Printer, Ban, PauseCircle } from 'lucide-react';
-import axios from 'axios';
 import JobDetailsModal from '../components/JobDetailsModal';
+import { useAuth } from '../context/AuthContext';
+import api from '../lib/api';
 
 interface Job {
   id: number;
   filename: string;
-  status: 'PENDING' | 'PAID' | 'SLICING' | 'PRINTING' | 'DONE';
+  status: 'PENDING' | 'PAID' | 'SLICING' | 'PRINTING' | 'DONE' | 'FAILED';
   slice_status?: string;
   price: number;
   quantity: number;
@@ -15,11 +16,8 @@ interface Job {
   created_at: string;
 }
 
-import { useAuth } from '../context/AuthContext';
-
 const Admin = () => {
   const { session, loading: authLoading } = useAuth();
-  console.log("Admin Render - Session:", session, "Loading:", authLoading);
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [activeTab, setActiveTab] = useState('jobs');
@@ -33,7 +31,7 @@ const Admin = () => {
     setLoading(true);
     try {
       if (!session?.access_token) return;
-      const res = await axios.get('http://localhost:8000/api/v1/jobs', {
+      const res = await api.get('/api/v1/jobs', {
           headers: { Authorization: `Bearer ${session.access_token}` }
       });
       setJobs(res.data);
@@ -63,11 +61,11 @@ const Admin = () => {
       const headers = { Authorization: `Bearer ${session.access_token}` };
       
       if (action === 'print') {
-        await axios.post(`http://localhost:8000/api/v1/jobs/${id}/approve`, {}, { headers });
+        await api.post(`/api/v1/jobs/${id}/approve`, {}, { headers });
       } else {
         // Placeholder for other actions
         console.log(`Action ${action} triggered for job ${id}`);
-        // await axios.post(`http://localhost:8000/api/v1/jobs/${id}/${action}`, {}, { headers });
+        // await axios.post(`/api/v1/jobs/${id}/${action}`, {}, { headers });
       }
       fetchJobs(); 
     } catch (err) {
@@ -107,12 +105,14 @@ const Admin = () => {
               <p className="text-3xl font-bold mt-2">{jobs.filter(j => j.status !== 'DONE').length}</p>
             </div>
             <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-gray-500 text-sm font-medium">Revenue (Today)</h3>
-              <p className="text-3xl font-bold mt-2 text-green-600">$124.50</p>
+              <h3 className="text-gray-500 text-sm font-medium">Total Revenue</h3>
+              <p className="text-3xl font-bold mt-2 text-green-600">
+                ${jobs.reduce((sum, j) => sum + j.price, 0).toFixed(2)}
+              </p>
             </div>
             <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-gray-500 text-sm font-medium">Printers Online</h3>
-              <p className="text-3xl font-bold mt-2 text-blue-600">2 / 3</p>
+              <h3 className="text-gray-500 text-sm font-medium">Completed Jobs</h3>
+              <p className="text-3xl font-bold mt-2 text-blue-600">{jobs.filter(j => j.status === 'DONE').length}</p>
             </div>
           </div>
         );

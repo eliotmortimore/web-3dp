@@ -1,11 +1,11 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, BackgroundTasks
 import shutil
 import os
+import time
 from tempfile import NamedTemporaryFile
-from stl import mesh
 
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -18,10 +18,9 @@ import trimesh
 
 from app.core.config import settings
 from app.api import deps
-from supabase import create_client, Client
+from app.api.deps import supabase
 
 router = APIRouter()
-supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 slicer = BambuSlicer()
 printer = BambuPrinter()
 estimator = EstimationService()
@@ -30,7 +29,7 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- Background Task ---
-def perform_admin_slicing(job_id: int, db: Session):
+def perform_admin_slicing(job_id: int):
     """
     Background task for Admin-triggered slicing using Bambu Studio.
     """
@@ -166,23 +165,24 @@ async def update_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
         
-    # Security check: User can only update their own PENDING jobs
-    if user_id and job.customer_id and job.customer_id != user_id:
-         # Unless admin? For now simple ownership
-         raise HTTPException(status_code=403, detail="Not authorized")
+    # Security check: require authentication and ownership
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if job.customer_id and job.customer_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
 
     # Update fields
-    if request.quantity:
+    if request.quantity is not None:
         job.quantity = request.quantity
-    if request.material:
+    if request.material is not None:
         job.material = request.material
-    if request.color:
+    if request.color is not None:
         job.color = request.color
-    if request.status:
+    if request.status is not None:
         job.status = request.status
 
     # Recalculate Price if quantity/material changed
-    if request.quantity or request.material:
+    if request.quantity is not None or request.material is not None:
         vol = job.volume_cm3 or 0.0
         time_s = job.print_time_seconds or 0
         mat = job.material
@@ -275,7 +275,6 @@ async def upload_stl(
             if existing_files and any(f.get('name') == file.filename for f in existing_files):
                 print(f"File exists. Deleting {storage_path}...")
                 supabase.storage.from_(settings.SUPABASE_BUCKET).remove([storage_path])
-                import time
                 time.sleep(0.5)
         except Exception as remove_err:
             print(f"Pre-check/Remove failed (ignoring): {remove_err}")
@@ -292,7 +291,6 @@ async def upload_stl(
             print(f"Upload failed: {upload_err}. Retrying with forced delete...")
             try:
                 supabase.storage.from_(settings.SUPABASE_BUCKET).remove([storage_path])
-                import time
                 time.sleep(1.0)
                 supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
                     storage_path, 
@@ -341,7 +339,7 @@ async def trigger_admin_slice(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
         
-    background_tasks.add_task(perform_admin_slicing, job.id, db)
+    background_tasks.add_task(perform_admin_slicing, job.id)
     
     return {"message": "Slicing started in background", "job_id": job.id}
 
@@ -410,10 +408,6 @@ async def get_job_details(job_id: int, db: Session = Depends(get_db)):
         metadata=metadata
     )
 
-@router.post("/quote")
-async def legacy_quote():
-    return {"message": "Deprecated. Use /upload directly."}
-
 @router.get("/jobs", response_model=List[JobRead])
 async def list_jobs(db: Session = Depends(get_db), current_user = Depends(deps.get_current_admin)):
     jobs = db.query(Job).order_by(Job.created_at.desc()).all()
@@ -445,7 +439,7 @@ async def approve_job(job_id: int, db: Session = Depends(get_db), current_user =
 
     # 2. Upload to Printer (FTPS)
     # Ensure remote filename is unique and ends with .gcode.3mf
-    printer_filename = f"job_{job.id}_{int(datetime.utcnow().timestamp())}.gcode.3mf"
+    printer_filename = f"job_{job.id}_{int(datetime.now(timezone.utc).timestamp())}.gcode.3mf"
     
     # We use a background task logic here usually, but for "approve" synchronous might be better feedback?
     # Let's keep it sync for now as upload takes < 10s usually

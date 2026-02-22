@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Box, Info, Settings, Clock, Layers, Weight, DollarSign, Printer, Download, Loader2 } from 'lucide-react';
-import axios from 'axios';
 import ModelViewer from './ModelViewer';
 import { useAuth } from '../context/AuthContext';
+import api from '../lib/api';
 
 interface JobDetailsProps {
   jobId: number | null;
@@ -60,7 +60,7 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
     
     try {
       const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
-      const res = await axios.get(`http://localhost:8000/api/v1/jobs/${jobId}/details`, { headers });
+      const res = await api.get(`/api/v1/jobs/${jobId}/details`, { headers });
       setJob(res.data);
       
       // Auto-switch to 3mf if slicing just completed
@@ -79,7 +79,7 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
     setSlicing(true);
     try {
       const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
-      await axios.post(`http://localhost:8000/api/v1/jobs/${job.id}/slice`, {}, { headers });
+      await api.post(`/api/v1/jobs/${job.id}/slice`, {}, { headers });
       
       // Refresh details immediately to catch the status change to SLICING
       await fetchJobDetails();
@@ -348,7 +348,7 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
               if (!confirm("Are you sure you want to send this to the printer?")) return;
               try {
                 const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
-                await axios.post(`http://localhost:8000/api/v1/jobs/${jobId}/approve`, {}, { headers });
+                await api.post(`/api/v1/jobs/${jobId}/approve`, {}, { headers });
                 alert("Sent to printer!");
                 fetchJobDetails();
               } catch(e) {

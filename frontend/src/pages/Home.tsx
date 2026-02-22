@@ -2,9 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import Viewer3D from '../components/Viewer3D';
 import QuotePanel from '../components/QuotePanel';
 import { UploadCloud, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'react-router-dom';
+import api from '../lib/api';
 
 // Main Home Component
 function Home() {
@@ -48,7 +47,7 @@ function Home() {
             headers['Authorization'] = `Bearer ${session.access_token}`;
         }
 
-        const res = await axios.post('http://localhost:8000/api/v1/upload', formData, {
+        const res = await api.post('/api/v1/upload', formData, {
             headers
         });
         
@@ -80,7 +79,7 @@ function Home() {
       
       pollInterval.current = window.setInterval(async () => {
           try {
-              const res = await axios.get(`http://localhost:8000/api/v1/jobs/${id}/status`);
+              const res = await api.get(`/api/v1/jobs/${id}/status`);
               const job = res.data;
               
               if (job.status === "COMPLETED") {
@@ -114,23 +113,6 @@ function Home() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
       
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <UploadCloud className="w-6 h-6 text-blue-600" />
-            </div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">Web3DP</h1>
-          </div>
-          <nav className="hidden md:flex gap-8 text-sm font-medium">
-            <Link to="/" className="text-gray-900 hover:text-blue-600 transition-colors">Order Now</Link>
-            <Link to="#" className="text-gray-500 hover:text-gray-900 transition-colors">My Prints</Link>
-            <Link to="/admin" className="text-gray-500 hover:text-gray-900 transition-colors">Admin</Link>
-          </nav>
-        </div>
-      </header>
-
       {/* Main Content */}
       <main className="flex-grow container mx-auto px-4 py-8 max-w-7xl">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 h-full">
@@ -202,10 +184,11 @@ function Home() {
           {/* Right Column: Quote Panel (Spans 4 cols) */}
           <div className="lg:col-span-4">
             <div className="sticky top-24">
-              <QuotePanel 
+              <QuotePanel
                 onFileSelect={handleFileSelect}
                 onMaterialChange={(m, c) => { setMaterial(m); setColor(c); }}
                 onQuantityChange={setQuantity}
+                onPriceUpdate={setPrice}
                 price={price}
                 loading={analyzing}
                 jobId={jobId}
@@ -213,7 +196,7 @@ function Home() {
               
               <div className="mt-6 text-center text-xs text-gray-400">
                 <p>Secure payment powered by Stripe</p>
-                <p className="mt-1">© 2024 Web3DP Inc.</p>
+                <p className="mt-1">© 2026 Web3DP Inc.</p>
               </div>
             </div>
           </div>
