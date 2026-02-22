@@ -45,16 +45,24 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
     try {
       const res = await axios.get(`http://localhost:8000/api/v1/jobs/${jobId}/details`);
       setJob(res.data);
-      // Default to 3mf if available and sliced
-      if (res.data.slice_status === 'COMPLETED') {
-        setViewMode('3mf');
-      }
+      // Default to 3mf if available and sliced - DISABLED for now as slicer is mocked
+      // if (res.data.slice_status === 'COMPLETED') {
+      //   setViewMode('3mf');
+      // }
     } catch (err) {
       console.error("Failed to fetch job details", err);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (job) {
+      console.log("Job Details Loaded:", job);
+      console.log("Input File URL:", job.file_url);
+      console.log("Sliced File URL:", job.sliced_file_url);
+    }
+  }, [job]);
 
   if (!jobId) return null;
 

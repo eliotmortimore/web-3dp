@@ -26,7 +26,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("3D Model Viewer Error:", error, errorInfo);
+    console.error("3D Model Viewer Error:", error);
+    console.error("Component Stack:", errorInfo.componentStack);
   }
 
   render() {
@@ -64,6 +65,7 @@ const Model = ({ url, type }: ModelViewerProps) => {
 };
 
 const ModelViewer = ({ url, type }: ModelViewerProps) => {
+  console.log(`ModelViewer mounting: type=${type}, url=${url}`);
   return (
     <div className="w-full h-full bg-gray-900 rounded-lg overflow-hidden relative">
       <ErrorBoundary fallback={
