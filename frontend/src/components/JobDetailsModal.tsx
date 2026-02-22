@@ -21,6 +21,8 @@ interface JobDetails {
   weight_g?: number;
   print_time_seconds?: number;
   sliced_file_path?: string;
+  file_url?: string;
+  sliced_file_url?: string;
   metadata?: {
     slice_info?: Record<string, string>;
     project_settings?: Record<string, string>;
@@ -182,9 +184,21 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
                    </div>
                    <div className="flex-1 bg-gray-900 relative">
                       {viewMode === 'stl' ? (
-                         <ModelViewer url={`http://localhost:8000/uploads/${job.filename}`} type="stl" />
+                         job.file_url ? (
+                            <ModelViewer url={job.file_url} type="stl" />
+                         ) : (
+                            <div className="absolute inset-0 flex items-center justify-center text-white/50 text-sm">
+                                STL URL unavailable
+                            </div>
+                         )
                       ) : (
-                         job.sliced_file_path && <ModelViewer url={`http://localhost:8000/uploads/${job.sliced_file_path}`} type="3mf" />
+                         job.sliced_file_url ? (
+                            <ModelViewer url={job.sliced_file_url} type="3mf" />
+                         ) : (
+                            <div className="absolute inset-0 flex items-center justify-center text-white/50 text-sm">
+                                Sliced file unavailable
+                            </div>
+                         )
                       )}
                       
                       <div className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-md text-white px-3 py-1.5 rounded-full text-xs font-mono pointer-events-none border border-white/10">

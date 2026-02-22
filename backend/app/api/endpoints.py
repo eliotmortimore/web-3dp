@@ -164,6 +164,8 @@ class JobDetailResponse(JobRead):
     weight_g: Optional[float] = None
     print_time_seconds: Optional[int] = None
     sliced_file_path: Optional[str] = None
+    file_url: Optional[str] = None
+    sliced_file_url: Optional[str] = None
     metadata: Optional[dict] = None
 
 # --- Endpoints ---
@@ -242,6 +244,17 @@ async def get_job_details(job_id: int, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    # Generate Public URLs
+    file_url = None
+    sliced_file_url = None
+    
+    if job.filepath:
+        # Assuming public bucket for now. If private, use create_signed_url
+        file_url = supabase.storage.from_(settings.SUPABASE_BUCKET).get_public_url(job.filepath)
+        
+    if job.sliced_file_path:
+        sliced_file_url = supabase.storage.from_(settings.SUPABASE_BUCKET).get_public_url(job.sliced_file_path)
+
     # Parse metadata from the sliced 3MF file if it exists
     metadata = {}
     if job.sliced_file_path:
@@ -269,6 +282,8 @@ async def get_job_details(job_id: int, db: Session = Depends(get_db)):
         weight_g=job.filament_weight_g,
         print_time_seconds=job.print_time_seconds,
         sliced_file_path=job.sliced_file_path,
+        file_url=file_url,
+        sliced_file_url=sliced_file_url,
         metadata=metadata
     )
 
