@@ -92,7 +92,11 @@ def analyze_and_slice_job(job_id: int, db: Session):
             sliced_storage_path = f"jobs/{job.id}/{output_filename}"
             try:
                 with open(output_path, "rb") as f:
-                    supabase.storage.from_(settings.SUPABASE_BUCKET).upload(sliced_storage_path, f)
+                    supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
+                        sliced_storage_path, 
+                        f,
+                        {"content-type": "application/vnd.ms-package.3dmanufacturing-3dmodel+xml"}
+                    )
                 
                 job.filament_weight_g = result["weight_g"]
                 job.print_time_seconds = result["print_time_s"]
@@ -204,7 +208,19 @@ async def upload_stl(
     try:
         file_content = await file.read()
         storage_path = f"jobs/{new_job.id}/{file.filename}"
-        supabase.storage.from_(settings.SUPABASE_BUCKET).upload(storage_path, file_content)
+        
+        # Determine content type
+        content_type = "application/octet-stream"
+        if file.filename.lower().endswith(".stl"):
+            content_type = "model/stl"
+        elif file.filename.lower().endswith(".3mf"):
+            content_type = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
+            
+        supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
+            storage_path, 
+            file_content, 
+            {"content-type": content_type}
+        )
         
         new_job.filepath = storage_path
         db.commit()
