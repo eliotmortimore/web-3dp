@@ -42,9 +42,7 @@ function Home() {
       formData.append('quantity', quantity.toString());
 
       try {
-        const headers: Record<string, string> = { 
-            'Content-Type': 'multipart/form-data' 
-        };
+        const headers: Record<string, string> = {};
         
         if (session?.access_token) {
             headers['Authorization'] = `Bearer ${session.access_token}`;
@@ -55,14 +53,22 @@ function Home() {
         });
         
         setJobId(res.data.job_id);
-        setStatusMessage("Slicing model... (This takes a few seconds)");
         
-        // Start Polling
-        startPolling(res.data.job_id);
+        if (res.data.status === "ESTIMATED" || res.data.price) {
+             setVolume(res.data.volume_cm3);
+             setPrice(res.data.price);
+             setAnalyzing(false);
+             setStatusMessage("");
+        } else {
+             setStatusMessage("Processing...");
+             // Fallback to polling if needed (though current flow is sync)
+             startPolling(res.data.job_id);
+        }
         
-      } catch (err) {
+      } catch (err: any) {
           console.error("Upload failed", err);
-          alert("Failed to upload file");
+          const msg = err.response?.data?.detail || "Failed to upload file";
+          alert(msg);
           setAnalyzing(false);
           setStatusMessage("");
       }
@@ -202,6 +208,7 @@ function Home() {
                 onQuantityChange={setQuantity}
                 price={price}
                 loading={analyzing}
+                jobId={jobId}
               />
               
               <div className="mt-6 text-center text-xs text-gray-400">

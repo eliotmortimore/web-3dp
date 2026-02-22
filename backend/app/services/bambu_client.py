@@ -60,7 +60,7 @@ class BambuPrinter:
                 "subtask_id": "0",
                 "subtask_name": "",
                 "file": filename, # e.g. "my_print.gcode.3mf"
-                "url": f"ftp://{self.filename}", # Usually redundant if file is local
+                "url": f"ftp://{filename}", # Usually redundant if file is local
                 "md5": "", # Optional but good practice
                 "timelapse": True,
                 "bed_type": "textured_pei_plate", # Default

@@ -1,7 +1,7 @@
 import React, { Suspense, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Stage, Center } from '@react-three/drei';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+import { STLLoader } from 'three-stdlib';
 import { useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -39,7 +39,7 @@ const Viewer3D: React.FC<ViewerProps> = ({ fileUrl, color }) => {
 
   return (
     <div className="w-full h-[400px] bg-gray-900 rounded-lg overflow-hidden shadow-xl">
-      <Canvas shadows camera={{ position: [0, 0, 100], fov: 50 }}>
+      <Canvas shadows={{ type: THREE.PCFShadowMap }} camera={{ position: [0, 0, 100], fov: 50 }}>
         <Suspense fallback={null}>
           <Stage environment="city" intensity={0.6}>
             <Center>

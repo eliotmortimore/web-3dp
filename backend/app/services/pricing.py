@@ -1,52 +1,83 @@
-from typing import Dict
+from typing import Dict, Any
 
-class PricingEngine:
-    # Default Density values (g/cm3)
-    DENSITY: Dict[str, float] = {
-        "PLA": 1.24,
-        "PETG": 1.27,
-        "ABS": 1.04,
-        "TPU": 1.21,
+class PricingService:
+    # Filament Registry (To be moved to DB later)
+    # Price per kg in USD
+    FILAMENTS = {
+        "PLA": {
+            "density": 1.24, # g/cm3
+            "price_per_kg": 20.00,
+            "colors": ["Red", "Blue", "White", "Black", "Grey", "Green", "Yellow", "Orange"]
+        },
+        "PETG": {
+            "density": 1.27,
+            "price_per_kg": 22.00,
+            "colors": ["Transparent", "Black", "White", "Grey"]
+        },
+        "ABS": {
+            "density": 1.04,
+            "price_per_kg": 25.00,
+            "colors": ["Black", "White", "Grey"]
+        },
+        "TPU": {
+            "density": 1.21,
+            "price_per_kg": 35.00,
+            "colors": ["Black", "Red"]
+        }
     }
-    
-    # Default Pricing ($/g)
-    COST_PER_GRAM: Dict[str, float] = {
-        "PLA": 0.05,
-        "PETG": 0.06,
-        "ABS": 0.05,
-        "TPU": 0.10,
-    }
-    
-    # Machine Costs
-    SETUP_FEE: float = 5.00  # Startup/Handling fee
-    MACHINE_RATE_PER_HR: float = 3.00  # $3/hr machine time
+
+    # Overhead Costs
+    SETUP_FEE = 5.00 # $5.00 per unique file (handling, slicing setup)
+    MACHINE_HOURLY_RATE = 3.00 # $3.00 per hour of print time
 
     def calculate_price(
         self, 
         volume_cm3: float, 
         material: str, 
-        quantity: int, 
-        est_hours: float = 1.0
-    ) -> float:
-        material = material.upper()
+        estimated_time_s: int,
+        quantity: int = 1
+    ) -> Dict[str, Any]:
+        """
+        Calculates the final price based on material usage and machine time.
         
-        # Get Density & Cost
-        density = self.DENSITY.get(material, 1.24)
-        cost_g = self.COST_PER_GRAM.get(material, 0.05)
+        Formula:
+        Material Cost = (Volume * Density) * (Price / 1000)
+        Machine Cost = Hours * Hourly Rate
+        Total Unit Cost = Material Cost + Machine Cost
+        Total Price = (Total Unit Cost * Quantity) + Setup Fee
+        """
+        mat_info = self.FILAMENTS.get(material.upper(), self.FILAMENTS["PLA"])
+        density = mat_info["density"]
+        price_per_kg = mat_info["price_per_kg"]
         
-        # Calculate Weight
+        # 1. Material Cost
         weight_g = volume_cm3 * density
+        material_cost_unit = weight_g * (price_per_kg / 1000.0)
         
-        # Calculate Material Cost
-        material_cost = weight_g * cost_g
+        # 2. Machine Cost
+        hours = estimated_time_s / 3600.0
+        machine_cost_unit = hours * self.MACHINE_HOURLY_RATE
         
-        # Calculate Machine Cost
-        machine_cost = est_hours * self.MACHINE_RATE_PER_HR
+        # 3. Total
+        unit_cost = material_cost_unit + machine_cost_unit
         
-        # Calculate Total per Unit
-        unit_price = material_cost + machine_cost + self.SETUP_FEE
+        # Apply margin/markup if desired (currently 1.0)
+        final_unit_price = unit_cost * 1.0 
         
-        # Total
-        total_price = unit_price * quantity
+        # Ensure minimum price per part (e.g., $1.00)
+        final_unit_price = max(final_unit_price, 1.00)
         
-        return round(total_price, 2)
+        total_price = (final_unit_price * quantity) + self.SETUP_FEE
+        
+        return {
+            "total_price": round(total_price, 2),
+            "unit_price": round(final_unit_price, 2),
+            "breakdown": {
+                "material_cost": round(material_cost_unit * quantity, 2),
+                "machine_cost": round(machine_cost_unit * quantity, 2),
+                "setup_fee": self.SETUP_FEE,
+                "weight_g": round(weight_g * quantity, 2)
+            }
+        }
+
+pricing_service = PricingService()

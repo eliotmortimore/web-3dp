@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, DollarSign, Box, Check } from 'lucide-react';
+import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
 
 interface QuotePanelProps {
   onFileSelect: (file: File) => void;
@@ -7,6 +9,7 @@ interface QuotePanelProps {
   onQuantityChange: (qty: number) => void;
   price: number | null;
   loading: boolean;
+  jobId: number | null;
 }
 
 const MATERIALS = [
@@ -27,12 +30,41 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
   onMaterialChange, 
   onQuantityChange, 
   price, 
-  loading 
+  loading,
+  jobId
 }) => {
+  const { session } = useAuth();
   const [selectedMat, setSelectedMat] = useState(MATERIALS[0]);
   const [selectedColor, setSelectedColor] = useState(MATERIALS[0].colors[0]);
   const [qty, setQty] = useState(1);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  // Debounced update for quantity/material changes
+  useEffect(() => {
+    if (!jobId) return;
+
+    const timer = setTimeout(() => {
+        updateJobDetails();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [qty, selectedMat.id, selectedColor.name]);
+
+  const updateJobDetails = async () => {
+      if (!jobId) return;
+      try {
+          const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+          // We call PATCH to update job and recalculate price
+          await axios.patch(`http://localhost:8000/api/v1/jobs/${jobId}`, {
+              quantity: qty,
+              material: selectedMat.id,
+              color: selectedColor.name
+          }, { headers });
+      } catch (err) {
+          console.error("Failed to update job", err);
+      }
+  };
 
   const handleMatChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const mat = MATERIALS.find(m => m.id === e.target.value) || MATERIALS[0];
@@ -53,11 +85,29 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
     onQuantityChange(val);
   };
 
-  const handleAddToOrder = () => {
-    // Add visual feedback
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 2000);
-    // In a real app, this would add to cart or checkout
+  const handleAddToOrder = async () => {
+    if (!jobId) return;
+    
+    setUpdating(true);
+    try {
+        const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+        // Finalize the job status
+        await axios.patch(`http://localhost:8000/api/v1/jobs/${jobId}`, {
+            status: "PAID", // Simulating payment for now
+            quantity: qty,
+            material: selectedMat.id,
+            color: selectedColor.name
+        }, { headers });
+
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 2000);
+        alert("Order confirmed! (Simulated)");
+    } catch (err) {
+        console.error("Failed to add to order", err);
+        alert("Failed to place order.");
+    } finally {
+        setUpdating(false);
+    }
   };
 
   return (
@@ -145,9 +195,9 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
 
       <button 
         onClick={handleAddToOrder}
-        disabled={!price || showSuccess}
+        disabled={!price || showSuccess || updating || !jobId}
         className={`w-full py-3 px-4 rounded-md text-white font-bold transition-all duration-200 flex items-center justify-center gap-2
-          ${price && !showSuccess ? 'bg-blue-600 hover:bg-blue-700 shadow-lg transform hover:-translate-y-0.5' : 'bg-gray-300 cursor-not-allowed'}
+          ${price && !showSuccess && !updating ? 'bg-blue-600 hover:bg-blue-700 shadow-lg transform hover:-translate-y-0.5' : 'bg-gray-300 cursor-not-allowed'}
           ${showSuccess ? 'bg-green-500 hover:bg-green-600' : ''}`}
       >
         {showSuccess ? (
@@ -155,6 +205,8 @@ const QuotePanel: React.FC<QuotePanelProps> = ({
             <Check className="w-5 h-5" />
             Added to Order!
           </>
+        ) : updating ? (
+            "Updating..."
         ) : (
           "Add to Order"
         )}

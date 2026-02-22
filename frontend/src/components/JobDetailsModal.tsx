@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Box, Info, Settings, Clock, Layers, Weight, DollarSign, Printer, Download } from 'lucide-react';
+import { X, Box, Info, Settings, Clock, Layers, Weight, DollarSign, Printer, Download, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import ModelViewer from './ModelViewer';
+import { useAuth } from '../context/AuthContext';
 
 interface JobDetailsProps {
   jobId: number | null;
@@ -30,8 +31,10 @@ interface JobDetails {
 }
 
 const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
+  const { session } = useAuth();
   const [job, setJob] = useState<JobDetails | null>(null);
   const [loading, setLoading] = useState(true);
+  const [slicing, setSlicing] = useState(false);
   const [viewMode, setViewMode] = useState<'stl' | '3mf'>('stl');
 
   useEffect(() => {
@@ -40,15 +43,30 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
     }
   }, [jobId]);
 
+  // Poll for updates if slicing is in progress
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (job?.slice_status === 'SLICING') {
+      interval = setInterval(fetchJobDetails, 3000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [job?.slice_status]);
+
   const fetchJobDetails = async () => {
-    setLoading(true);
+    // Only show loading on initial fetch
+    if (!job) setLoading(true);
+    
     try {
-      const res = await axios.get(`http://localhost:8000/api/v1/jobs/${jobId}/details`);
+      const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+      const res = await axios.get(`http://localhost:8000/api/v1/jobs/${jobId}/details`, { headers });
       setJob(res.data);
-      // Default to 3mf if available and sliced - DISABLED for now as slicer is mocked
-      // if (res.data.slice_status === 'COMPLETED') {
-      //   setViewMode('3mf');
-      // }
+      
+      // Auto-switch to 3mf if slicing just completed
+      if (res.data.slice_status === 'COMPLETED' && (!job || job.slice_status !== 'COMPLETED')) {
+        setViewMode('3mf');
+      }
     } catch (err) {
       console.error("Failed to fetch job details", err);
     } finally {
@@ -56,13 +74,38 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
     }
   };
 
+  const handleSliceJob = async () => {
+    if (!job) return;
+    setSlicing(true);
+    try {
+      const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+      await axios.post(`http://localhost:8000/api/v1/jobs/${job.id}/slice`, {}, { headers });
+      
+      // Refresh details immediately to catch the status change to SLICING
+      await fetchJobDetails();
+      
+    } catch (err) {
+      console.error("Failed to trigger slicing", err);
+      alert("Failed to trigger slicing. Please try again.");
+    } finally {
+      setSlicing(false);
+    }
+  };
+
   useEffect(() => {
     if (job) {
-      console.log("Job Details Loaded:", job);
-      console.log("Input File URL:", job.file_url);
-      console.log("Sliced File URL:", job.sliced_file_url);
+      // console.log("Job Details Loaded:", job);
     }
   }, [job]);
+
+  const getSliceStatusColor = (status: string) => {
+    switch (status) {
+      case 'COMPLETED': return 'bg-green-100 text-green-700';
+      case 'FAILED': return 'bg-red-100 text-red-700';
+      case 'SLICING': return 'bg-blue-100 text-blue-700';
+      default: return 'bg-yellow-100 text-yellow-700'; // PENDING
+    }
+  };
 
   if (!jobId) return null;
 
@@ -112,8 +155,7 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
                       </div>
                       <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                         <span className="text-gray-600 font-medium">Slicing Status</span>
-                        <span className={`px-2 py-1 rounded-md text-sm font-bold 
-                          ${job.slice_status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                        <span className={`px-2 py-1 rounded-md text-sm font-bold ${getSliceStatusColor(job.slice_status)}`}>
                           {job.slice_status}
                         </span>
                       </div>
@@ -272,9 +314,51 @@ const JobDetailsModal = ({ jobId, onClose }: JobDetailsProps) => {
           <button onClick={onClose} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 shadow-sm transition-all">
             Close
           </button>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2">
+          
+          <div className="flex gap-2">
+            <button 
+                onClick={handleSliceJob}
+                disabled={slicing || job?.slice_status === 'SLICING'}
+                className="px-4 py-2 bg-yellow-500 text-white rounded-md text-sm font-medium hover:bg-yellow-600 shadow-md hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {slicing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
+                {slicing || job?.slice_status === 'SLICING' ? 'Slicing...' : 'Slice / Prepare'}
+            </button>
+            <button 
+              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-50 shadow-sm transition-all flex items-center gap-2"
+              onClick={() => {
+                if (job?.sliced_file_url) {
+                  window.open(job.sliced_file_url, '_blank');
+                } else if (job?.file_url) {
+                  window.open(job.file_url, '_blank');
+                } else {
+                  alert("No file available to download.");
+                }
+              }}
+            >
+              <Download className="w-4 h-4" />
+              Download
+            </button>
+          </div>
+
+          <button 
+            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={job?.slice_status !== 'COMPLETED'}
+            onClick={async () => {
+              if (!confirm("Are you sure you want to send this to the printer?")) return;
+              try {
+                const headers = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+                await axios.post(`http://localhost:8000/api/v1/jobs/${jobId}/approve`, {}, { headers });
+                alert("Sent to printer!");
+                fetchJobDetails();
+              } catch(e) {
+                alert("Failed to send to printer. Check console.");
+                console.error(e);
+              }
+            }}
+          >
             <Printer className="w-4 h-4" />
-            Start Print Job
+            Send to Printer
           </button>
         </div>
       </div>

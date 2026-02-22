@@ -13,6 +13,7 @@ from app.db.models import Job, Material, JobStatus
 from app.services.slicer import BambuSlicer
 from app.services.bambu_client import BambuPrinter
 from app.services.metadata import parse_3mf_metadata
+from app.services.estimation import EstimationService
 import trimesh
 
 from app.core.config import settings
@@ -23,15 +24,15 @@ router = APIRouter()
 supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
 slicer = BambuSlicer()
 printer = BambuPrinter()
+estimator = EstimationService()
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- Background Task ---
-def analyze_and_slice_job(job_id: int, db: Session):
+def perform_admin_slicing(job_id: int, db: Session):
     """
-    1. Download from Supabase
-    2. Analyze Mesh (Volume)
-    3. Run Slicer (Weight, Time, Gcode)
-    4. Upload Result to Supabase
-    5. Update Job in DB
+    Background task for Admin-triggered slicing using Bambu Studio.
     """
     from app.db.database import SessionLocal
     bg_db = SessionLocal()
@@ -41,8 +42,8 @@ def analyze_and_slice_job(job_id: int, db: Session):
         if not job:
             return
 
-        print(f"[Task] Starting analysis for Job {job_id}...")
-        job.slice_status = "ANALYZING"
+        print(f"[Admin Task] Starting slicing for Job {job_id}...")
+        job.slice_status = "SLICING"
         bg_db.commit()
 
         # Step 1: Download File
@@ -57,35 +58,16 @@ def analyze_and_slice_job(job_id: int, db: Session):
             with open(local_input_path, "wb") as f:
                 f.write(res)
         except Exception as e:
-            print(f"[Task] Download error: {e}")
+            print(f"[Admin Task] Download error: {e}")
             job.slice_status = "FAILED"
             bg_db.commit()
             return
 
-        # Step 2: Geometry Analysis
-        try:
-            # Try numpy-stl first
-            try:
-                your_mesh = mesh.Mesh.from_file(local_input_path)
-                raw_vol, _, _ = your_mesh.get_mass_properties()
-                job.volume_cm3 = float(raw_vol) / 1000.0
-            except:
-                # Fallback to trimesh
-                mesh_obj = trimesh.load(local_input_path)
-                if hasattr(mesh_obj, 'volume'):
-                    job.volume_cm3 = mesh_obj.volume / 1000.0
-                elif hasattr(mesh_obj, 'convex_hull'):
-                    job.volume_cm3 = mesh_obj.convex_hull.volume / 1000.0
-        except Exception as e:
-            print(f"[Task] Vol calc error: {e}")
-            job.volume_cm3 = 50.0 # Fallback
-
-        # Step 3: Slicing
+        # Step 2: Run Real Slicer
         output_filename = f"job_{job.id}.gcode.3mf"
         output_path = os.path.join(UPLOAD_DIR, output_filename)
         
-        # Call Slicer Service
-        result = slicer.slice_and_parse(local_input_path, output_path)
+        result = slicer.slice_file(local_input_path, output_path)
         
         if result["success"]:
             # Upload Sliced File to Supabase
@@ -95,34 +77,25 @@ def analyze_and_slice_job(job_id: int, db: Session):
                     supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
                         sliced_storage_path, 
                         f,
-                        {"content-type": "application/vnd.ms-package.3dmanufacturing-3dmodel+xml"}
+                        {"content-type": "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", "upsert": "true"}
                     )
                 
-                job.filament_weight_g = result["weight_g"]
-                job.print_time_seconds = result["print_time_s"]
                 job.sliced_file_path = sliced_storage_path
                 job.slice_status = "COMPLETED"
                 
-                # Calculate Price
-                cost_per_g = 0.05
-                markup = 5.0
-                machine_rate_per_sec = 3.0 / 3600.0
-                
-                material_cost = job.filament_weight_g * cost_per_g
-                machine_cost = job.print_time_seconds * machine_rate_per_sec
-                total_price = material_cost + machine_cost + markup
-                job.price = round(total_price * job.quantity, 2)
+                # Optional: Update weight/time if real metadata is available
+                # (We might want to keep the estimated price or update it? For now, keep estimated)
                 
             except Exception as e:
-                print(f"[Task] Upload sliced file error: {e}")
+                print(f"[Admin Task] Upload sliced file error: {e}")
                 job.slice_status = "FAILED"
             
         else:
             job.slice_status = "FAILED"
-            print(f"[Task] Slicing failed.")
+            print(f"[Admin Task] Slicing failed: {result.get('error')}")
 
         bg_db.commit()
-        print(f"[Task] Job {job_id} analysis complete. Price: ${job.price}")
+        print(f"[Admin Task] Job {job_id} slicing complete.")
         
         # Cleanup
         if os.path.exists(local_input_path):
@@ -131,15 +104,23 @@ def analyze_and_slice_job(job_id: int, db: Session):
             os.remove(output_path)
 
     except Exception as e:
-        print(f"[Task] Critical Error: {e}")
+        print(f"[Admin Task] Critical Error: {e}")
     finally:
         bg_db.close()
+
+from app.services.pricing import pricing_service
 
 # --- Pydantic Schemas (DTOs) ---
 class QuoteRequest(BaseModel):
     filename: str
     material: str
     quantity: int
+
+class UpdateJobRequest(BaseModel):
+    quantity: Optional[int] = None
+    material: Optional[str] = None
+    color: Optional[str] = None
+    status: Optional[str] = None
 
 class QuoteResponse(BaseModel):
     job_id: int
@@ -174,12 +155,57 @@ class JobDetailResponse(JobRead):
 
 # --- Endpoints ---
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+@router.patch("/jobs/{job_id}", response_model=JobRead)
+async def update_job(
+    job_id: int, 
+    request: UpdateJobRequest,
+    db: Session = Depends(get_db),
+    user_id: Optional[str] = Depends(deps.get_current_user_id)
+):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    # Security check: User can only update their own PENDING jobs
+    if user_id and job.customer_id and job.customer_id != user_id:
+         # Unless admin? For now simple ownership
+         raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Update fields
+    if request.quantity:
+        job.quantity = request.quantity
+    if request.material:
+        job.material = request.material
+    if request.color:
+        job.color = request.color
+    if request.status:
+        job.status = request.status
+
+    # Recalculate Price if quantity/material changed
+    if request.quantity or request.material:
+        vol = job.volume_cm3 or 0.0
+        time_s = job.print_time_seconds or 0
+        mat = job.material
+        qty = job.quantity
+        
+        quote = pricing_service.calculate_price(
+            volume_cm3=vol,
+            material=mat,
+            estimated_time_s=time_s,
+            quantity=qty
+        )
+        job.price = quote["total_price"]
+        
+        # Re-calc unit weight based on density
+        density = pricing_service.FILAMENTS.get(mat.upper(), {}).get("density", 1.24)
+        job.filament_weight_g = vol * density
+
+    db.commit()
+    db.refresh(job)
+    return job
 
 @router.post("/upload", response_model=QuoteResponse)
 async def upload_stl(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     material: str = "PLA",
     quantity: int = 1,
@@ -189,54 +215,135 @@ async def upload_stl(
     if not file.filename.lower().endswith(".stl"):
         raise HTTPException(status_code=400, detail="Only .stl files are allowed")
     
-    # 1. Create Job Immediately (PENDING)
-    new_job = Job(
-        filename=file.filename,
-        material=material,
-        quantity=quantity,
-        status=JobStatus.PENDING,
-        slice_status="PENDING",
-        volume_cm3=0.0,
-        price=0.0,
-        customer_id=user_id # Save User ID if logged in
-    )
-    db.add(new_job)
-    db.commit()
-    db.refresh(new_job)
-    
-    # 2. Upload to Supabase
+    # 1. Save locally temporarily for estimation
+    temp_path = os.path.join(UPLOAD_DIR, f"estimate_{file.filename}")
     try:
-        file_content = await file.read()
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # 2. Synchronous Estimation
+        estimation = estimator.analyze_stl(temp_path, material)
+        if not estimation["success"]:
+             raise HTTPException(status_code=400, detail=f"Analysis failed: {estimation.get('error')}")
+        
+        # Calculate Price using Service
+        est_vol = estimation["volume_cm3"]
+        est_time = estimation["estimated_print_time_s"]
+        
+        quote = pricing_service.calculate_price(
+            volume_cm3=est_vol,
+            material=material,
+            estimated_time_s=est_time,
+            quantity=quantity
+        )
+        
+        total_price = quote["total_price"]
+        est_weight = estimation["estimated_weight_g"] # Unit weight from estimation
+        
+        # 3. Create Job (PENDING_ADMIN_REVIEW)
+        new_job = Job(
+            filename=file.filename,
+            material=material,
+            quantity=quantity,
+            status=JobStatus.PENDING,
+            slice_status="PENDING", # Needs admin review
+            volume_cm3=est_vol,
+            filament_weight_g=est_weight,
+            print_time_seconds=est_time,
+            price=total_price,
+            customer_id=user_id 
+        )
+        db.add(new_job)
+        db.commit()
+        db.refresh(new_job)
+        
+        # 4. Upload to Supabase (Async or Sync? Sync is safer here)
+        # Reset file pointer to read again
+        file.file.seek(0) 
+        file_content = file.file.read()
+        
         storage_path = f"jobs/{new_job.id}/{file.filename}"
         
-        # Determine content type
-        content_type = "application/octet-stream"
-        if file.filename.lower().endswith(".stl"):
-            content_type = "model/stl"
-        elif file.filename.lower().endswith(".3mf"):
-            content_type = "application/vnd.ms-package.3dmanufacturing-3dmodel+xml"
+        # Try to delete existing file first to avoid 409 Conflict
+        try:
+            print(f"Checking for existing file at {storage_path}...")
+            # We list the folder to check existence (folder is jobs/{id})
+            folder_path = f"jobs/{new_job.id}"
+            existing_files = supabase.storage.from_(settings.SUPABASE_BUCKET).list(folder_path)
             
-        supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
-            storage_path, 
-            file_content, 
-            {"content-type": content_type}
-        )
+            # Check if file exists in the list
+            if existing_files and any(f.get('name') == file.filename for f in existing_files):
+                print(f"File exists. Deleting {storage_path}...")
+                supabase.storage.from_(settings.SUPABASE_BUCKET).remove([storage_path])
+                import time
+                time.sleep(0.5)
+        except Exception as remove_err:
+            print(f"Pre-check/Remove failed (ignoring): {remove_err}")
+
+        # Upload with upsert
+        try:
+            supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
+                storage_path, 
+                file_content, 
+                {"content-type": "model/stl", "upsert": "true"}
+            )
+        except Exception as upload_err:
+            # Fallback: if upload failed, try one last delete and retry
+            print(f"Upload failed: {upload_err}. Retrying with forced delete...")
+            try:
+                supabase.storage.from_(settings.SUPABASE_BUCKET).remove([storage_path])
+                import time
+                time.sleep(1.0)
+                supabase.storage.from_(settings.SUPABASE_BUCKET).upload(
+                    storage_path, 
+                    file_content, 
+                    {"content-type": "model/stl", "upsert": "true"}
+                )
+            except Exception as retry_err:
+                raise Exception(f"Final upload retry failed: {retry_err}")
         
         new_job.filepath = storage_path
         db.commit()
+        
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        print(f"Upload failed: {e}")
-        db.delete(new_job)
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-    
-    # 3. Trigger Background Analysis
-    background_tasks.add_task(analyze_and_slice_job, new_job.id, db)
+        print(f"Upload/Estimate failed: {e}")
+        if 'new_job' in locals():
+            db.delete(new_job)
+            db.commit()
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
     
     return QuoteResponse(
         job_id=new_job.id,
-        status="ANALYZING"
+        status="ESTIMATED",
+        volume_cm3=new_job.volume_cm3,
+        weight_g=new_job.filament_weight_g,
+        price=new_job.price,
+        print_time=f"{new_job.print_time_seconds // 60}m",
+        currency="USD"
     )
+
+@router.post("/jobs/{job_id}/slice")
+async def trigger_admin_slice(
+    job_id: int, 
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(deps.get_current_admin)
+):
+    """
+    Admin-only endpoint to trigger real slicing.
+    """
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    background_tasks.add_task(perform_admin_slicing, job.id, db)
+    
+    return {"message": "Slicing started in background", "job_id": job.id}
 
 @router.get("/jobs/{job_id}/status", response_model=QuoteResponse)
 async def check_job_status(job_id: int, db: Session = Depends(get_db)):
@@ -314,6 +421,9 @@ async def list_jobs(db: Session = Depends(get_db), current_user = Depends(deps.g
 
 @router.post("/jobs/{job_id}/approve")
 async def approve_job(job_id: int, db: Session = Depends(get_db), current_user = Depends(deps.get_current_admin)):
+    """
+    Triggers the printer to start printing the already sliced file.
+    """
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -333,8 +443,12 @@ async def approve_job(job_id: int, db: Session = Depends(get_db), current_user =
     except Exception as e:
          raise HTTPException(status_code=500, detail=f"Failed to download sliced file: {e}")
 
-    # 2. Upload to Printer
-    printer_filename = f"job_{job.id}.gcode.3mf"
+    # 2. Upload to Printer (FTPS)
+    # Ensure remote filename is unique and ends with .gcode.3mf
+    printer_filename = f"job_{job.id}_{int(datetime.utcnow().timestamp())}.gcode.3mf"
+    
+    # We use a background task logic here usually, but for "approve" synchronous might be better feedback?
+    # Let's keep it sync for now as upload takes < 10s usually
     upload_success = printer.upload_file(temp_path, printer_filename)
     
     # Cleanup temp file
@@ -342,18 +456,17 @@ async def approve_job(job_id: int, db: Session = Depends(get_db), current_user =
         os.remove(temp_path)
 
     if not upload_success:
-        job.status = JobStatus.FAILED
-        db.commit()
-        raise HTTPException(status_code=500, detail="Failed to upload to printer")
+        # Don't fail the job, just the request
+        raise HTTPException(status_code=500, detail="Failed to upload file to printer. Check printer connection.")
 
-    # 3. Start Print
-    print_success = printer.send_print_command(printer_filename)
+    # 3. Start Print (MQTT)
+    # TODO: Pass project specific settings if needed (bed type, etc)
+    print_success = printer.send_print_command(printer_filename, project_id=str(job.id))
+    
     if not print_success:
-         job.status = JobStatus.FAILED
-         db.commit()
-         raise HTTPException(status_code=500, detail="Failed to start print command")
+         raise HTTPException(status_code=500, detail="Failed to send start command to printer.")
     
     job.status = JobStatus.PRINTING
     db.commit()
     
-    return {"message": f"Job {job_id} sent to printer successfully."}
+    return {"message": f"Job {job_id} sent to printer successfully.", "printer_file": printer_filename}

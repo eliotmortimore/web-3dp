@@ -54,7 +54,7 @@ const Model = ({ url, type }: ModelViewerProps) => {
 
   if (type === 'stl') {
     return (
-      <mesh geometry={geom} castShadow receiveShadow>
+      <mesh geometry={geom as THREE.BufferGeometry} castShadow receiveShadow>
         <meshStandardMaterial color="#6366f1" roughness={0.5} metalness={0.1} />
       </mesh>
     );
@@ -77,7 +77,7 @@ const ModelViewer = ({ url, type }: ModelViewerProps) => {
           </div>
         </div>
       }>
-        <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 0, 150], fov: 50 }}>
+        <Canvas shadows={{ type: THREE.PCFShadowMap }} dpr={[1, 2]} camera={{ position: [0, 0, 150], fov: 50 }}>
           <Suspense fallback={null}>
             <Stage environment="city" intensity={0.6}>
               <Model url={url} type={type} />
